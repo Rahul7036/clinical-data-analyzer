@@ -91,9 +91,3 @@ A **generic, user-friendly web application** for analyzing clinical, survey, or 
 ## 🤝 Contributing
 
 Contributions are welcome! Please open issues or pull requests for new features, bug fixes, or suggestions.
-
----
-
-## 📄 License
-
-MIT License (see `LICENSE` file)

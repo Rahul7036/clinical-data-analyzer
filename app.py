@@ -13,6 +13,11 @@ Upload your Excel or CSV file below. This app will help you analyze, visualize, 
 
 uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "xls", "csv"])
 
+def wrap_labels(labels, width=30):
+    # Helper to wrap long labels for matplotlib
+    import textwrap
+    return ['\n'.join(textwrap.wrap(str(l), width)) for l in labels]
+
 df = None
 if uploaded_file is not None:
     try:
@@ -51,6 +56,40 @@ if uploaded_file is not None:
             single_graph_options = ["Bar Chart", "Pie Chart", "Donut Chart", "Value Counts Table"]
         graph_type = st.radio("Select graph type", single_graph_options, key="single_graph")
 
+        # --- Categorical ordering and top N options ---
+        if not (is_numeric and not is_categorical):
+            st.markdown("**Category Display Options:**")
+            order_by = st.selectbox(
+                "Order categories by",
+                ["Frequency (Descending)", "Frequency (Ascending)", "Label (A-Z)", "Label (Z-A)"],
+                key="order_by"
+            )
+            max_n = st.number_input(
+                "Show Top N Categories (rest grouped as 'Other')",
+                min_value=2, max_value=n_unique, value=min(10, n_unique), step=1, key="top_n"
+            )
+            # Compute value counts
+            value_counts = col_data_clean.value_counts()
+            # Apply ordering
+            if order_by == "Frequency (Descending)":
+                value_counts = value_counts.sort_values(ascending=False)
+            elif order_by == "Frequency (Ascending)":
+                value_counts = value_counts.sort_values(ascending=True)
+            elif order_by == "Label (A-Z)":
+                value_counts = value_counts.sort_index(ascending=True)
+            elif order_by == "Label (Z-A)":
+                value_counts = value_counts.sort_index(ascending=False)
+            # Apply top N
+            if len(value_counts) > max_n:
+                top = value_counts.iloc[:max_n]
+                other = value_counts.iloc[max_n:].sum()
+                value_counts = pd.concat([top, pd.Series({'Other': other})])
+            # Wrap long labels
+            plot_labels = wrap_labels(value_counts.index)
+        else:
+            value_counts = None
+            plot_labels = None
+
         # Layout: Graph and Interpretation side by side
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -75,39 +114,56 @@ if uploaded_file is not None:
                     ax.set_title(f"KDE Plot of {col_selected}")
                     st.pyplot(fig)
             else:
-                value_counts = col_data_clean.value_counts()
                 if graph_type == "Bar Chart":
                     orientation = st.radio("Bar Chart Orientation", ["Vertical", "Horizontal"], horizontal=True, key="bar_orientation")
+                    percentages = (value_counts.values / value_counts.values.sum() * 100).round(1)
                     if orientation == "Vertical":
-                        value_counts.plot(kind="bar", ax=ax, color="#2ecc71")
+                        bars = ax.bar(plot_labels, value_counts.values, color="#2ecc71", alpha=0.7)
                         ax.set_xlabel(col_selected)
                         ax.set_ylabel("Count")
                         ax.set_title(f"Bar Chart of {col_selected}")
+                        plt.xticks(rotation=30, ha='right')
+                        # Add percentage labels on top of bars
+                        for bar, pct in zip(bars, percentages):
+                            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{pct}%", ha='center', va='bottom', fontsize=10)
                         st.pyplot(fig)
                     else:
-                        value_counts.plot(kind="barh", ax=ax, color="#2ecc71")
+                        bars = ax.barh(plot_labels, value_counts.values, color="#2ecc71", alpha=0.7)
                         ax.set_ylabel(col_selected)
                         ax.set_xlabel("Count")
                         ax.set_title(f"Horizontal Bar Chart of {col_selected}")
+                        # Add percentage labels to the right of bars
+                        for bar, pct in zip(bars, percentages):
+                            ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f"{pct}%", ha='left', va='center', fontsize=10)
                         st.pyplot(fig)
                 elif graph_type == "Pie Chart":
                     fig2, ax2 = plt.subplots(figsize=(6, 6))
-                    value_counts.plot(kind="pie", ax=ax2, autopct="%1.1f%%", startangle=90, legend=False)
+                    ax2.pie(value_counts.vtalues, labels=plot_labels, autopct="%1.1f%%", startangle=90)
                     ax2.set_ylabel("")
                     ax2.set_title(f"Pie Chart of {col_selected}")
                     st.pyplot(fig2)
                 elif graph_type == "Donut Chart":
                     fig2, ax2 = plt.subplots(figsize=(6, 6))
-                    wedges, texts, autotexts = ax2.pie(value_counts, labels=value_counts.index, autopct="%1.1f%%", startangle=90, wedgeprops=dict(width=0.4))
+                    wedges, texts, autotexts = ax2.pie(value_counts.values, labels=plot_labels, autopct="%1.1f%%", startangle=90, wedgeprops=dict(width=0.4))
                     ax2.set_ylabel("")
                     ax2.set_title(f"Donut Chart of {col_selected}")
                     st.pyplot(fig2)
         with col2:
             st.subheader("Summary / Interpretation")
+            # Show summary table for categorical columns
+            if not (is_numeric and not is_categorical):
+                # Prepare summary table
+                summary_df = value_counts.reset_index()
+                summary_df.columns = ["Option", "Responses"]
+                summary_df["Description"] = summary_df["Option"]  # Placeholder, can be customized
+                summary_df["Percentage (%)"] = (summary_df["Responses"] / summary_df["Responses"].sum() * 100).round(2)
+                summary_df = summary_df[["Option", "Description", "Responses", "Percentage (%)"]]
+                st.markdown("**Response Table:**")
+                st.dataframe(summary_df, use_container_width=True)
             if is_numeric and not is_categorical and graph_type == "Summary Stats":
                 st.write(col_data_clean.describe().to_frame())
             elif not (is_numeric and not is_categorical) and graph_type == "Value Counts Table":
-                st.write(col_data_clean.value_counts().to_frame(name="Count"))
+                st.write(value_counts.to_frame(name="Count"))
             # Text area for user notes/interpretation
             user_notes = st.text_area("Add your interpretation or notes (optional)", key="notes")
             if user_notes:

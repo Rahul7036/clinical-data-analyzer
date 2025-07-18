@@ -86,9 +86,25 @@ if uploaded_file is not None:
                 value_counts = pd.concat([top, pd.Series({'Other': other})])
             # Wrap long labels
             plot_labels = wrap_labels(value_counts.index)
+
+            # --- User customization for color and display name ---
+            st.sidebar.markdown(f"### Customize Categories for '{col_selected}'")
+            custom_colors = {}
+            custom_labels = {}
+            default_palette = sns.color_palette("Set2", n_colors=len(value_counts))
+            for i, cat in enumerate(value_counts.index):
+                color_key = f"color_{col_selected}_{cat}"
+                label_key = f"label_{col_selected}_{cat}"
+                default_color = '#%02x%02x%02x' % tuple(int(255*x) for x in default_palette[i])
+                custom_colors[cat] = st.sidebar.color_picker(f"Color for '{cat}'", value=default_color, key=color_key)
+                custom_labels[cat] = st.sidebar.text_input(f"Label for '{cat}'", value=str(cat), key=label_key)
+            # Use custom labels for plotting and tables
+            plot_labels = [custom_labels[cat] for cat in value_counts.index]
+            category_colors = [custom_colors[cat] for cat in value_counts.index]
         else:
             value_counts = None
             plot_labels = None
+            category_colors = None
 
         # Layout: Graph and Interpretation side by side
         col1, col2 = st.columns([2, 1])
@@ -117,34 +133,41 @@ if uploaded_file is not None:
                 if graph_type == "Bar Chart":
                     orientation = st.radio("Bar Chart Orientation", ["Vertical", "Horizontal"], horizontal=True, key="bar_orientation")
                     percentages = (value_counts.values / value_counts.values.sum() * 100).round(1)
+                    threshold = 0.1 * max(value_counts.values)  # 10% of max bar length
                     if orientation == "Vertical":
-                        bars = ax.bar(plot_labels, value_counts.values, color="#2ecc71", alpha=0.7)
+                        bars = ax.bar(plot_labels, value_counts.values, color=category_colors, alpha=0.7)
                         ax.set_xlabel(col_selected)
                         ax.set_ylabel("Count")
                         ax.set_title(f"Bar Chart of {col_selected}")
                         plt.xticks(rotation=30, ha='right')
-                        # Add percentage labels on top of bars
-                        for bar, pct in zip(bars, percentages):
-                            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{pct}%", ha='center', va='bottom', fontsize=10)
+                        # Add percentage labels inside or outside bars
+                        for bar, pct, val in zip(bars, percentages, value_counts.values):
+                            if val > threshold:
+                                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() * 0.5, f"{pct}%", ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+                            else:
+                                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{pct}%", ha='center', va='bottom', fontsize=10, color='black')
                         st.pyplot(fig)
                     else:
-                        bars = ax.barh(plot_labels, value_counts.values, color="#2ecc71", alpha=0.7)
+                        bars = ax.barh(plot_labels, value_counts.values, color=category_colors, alpha=0.7)
                         ax.set_ylabel(col_selected)
                         ax.set_xlabel("Count")
                         ax.set_title(f"Horizontal Bar Chart of {col_selected}")
-                        # Add percentage labels to the right of bars
-                        for bar, pct in zip(bars, percentages):
-                            ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f"{pct}%", ha='left', va='center', fontsize=10)
+                        # Add percentage labels inside or outside bars
+                        for bar, pct, val in zip(bars, percentages, value_counts.values):
+                            if val > threshold:
+                                ax.text(bar.get_width() * 0.5, bar.get_y() + bar.get_height() / 2, f"{pct}%", ha='center', va='center', fontsize=10, color='white', fontweight='bold')
+                            else:
+                                ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f"{pct}%", ha='left', va='center', fontsize=10, color='black')
                         st.pyplot(fig)
                 elif graph_type == "Pie Chart":
                     fig2, ax2 = plt.subplots(figsize=(6, 6))
-                    ax2.pie(value_counts.vtalues, labels=plot_labels, autopct="%1.1f%%", startangle=90)
+                    ax2.pie(value_counts.values, labels=plot_labels, autopct="%1.1f%%", startangle=90, colors=category_colors)
                     ax2.set_ylabel("")
                     ax2.set_title(f"Pie Chart of {col_selected}")
                     st.pyplot(fig2)
                 elif graph_type == "Donut Chart":
                     fig2, ax2 = plt.subplots(figsize=(6, 6))
-                    wedges, texts, autotexts = ax2.pie(value_counts.values, labels=plot_labels, autopct="%1.1f%%", startangle=90, wedgeprops=dict(width=0.4))
+                    wedges, texts, autotexts = ax2.pie(value_counts.values, labels=plot_labels, autopct="%1.1f%%", startangle=90, wedgeprops=dict(width=0.4), colors=category_colors)
                     ax2.set_ylabel("")
                     ax2.set_title(f"Donut Chart of {col_selected}")
                     st.pyplot(fig2)
@@ -155,9 +178,17 @@ if uploaded_file is not None:
                 # Prepare summary table
                 summary_df = value_counts.reset_index()
                 summary_df.columns = ["Option", "Responses"]
-                summary_df["Description"] = summary_df["Option"]  # Placeholder, can be customized
+                summary_df["Description"] = summary_df["Option"].map(custom_labels)  # Use custom label
                 summary_df["Percentage (%)"] = (summary_df["Responses"] / summary_df["Responses"].sum() * 100).round(2)
                 summary_df = summary_df[["Option", "Description", "Responses", "Percentage (%)"]]
+                # Add total row
+                total_row = pd.DataFrame({
+                    "Option": ["Total"],
+                    "Description": [""],
+                    "Responses": [summary_df["Responses"].sum()],
+                    "Percentage (%)": [100.0]
+                })
+                summary_df = pd.concat([summary_df, total_row], ignore_index=True)
                 st.markdown("**Response Table:**")
                 st.dataframe(summary_df, use_container_width=True)
             if is_numeric and not is_categorical and graph_type == "Summary Stats":

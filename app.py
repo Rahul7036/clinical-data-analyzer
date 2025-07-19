@@ -150,7 +150,15 @@ with tabs[2]:
 
         # --- Manual grouping for clinical interpretation ---
         st.sidebar.markdown(f"### Clinical Interpretation Groups for '{col_selected}'")
-        group_count = st.sidebar.number_input("Number of groups", min_value=1, max_value=len(value_counts), value=3, key="group_count")
+        max_n_groups = len(value_counts)
+        default_n_groups = min(3, max_n_groups)
+        group_count = st.sidebar.number_input(
+            "Number of groups",
+            min_value=1,
+            max_value=max_n_groups,
+            value=default_n_groups,
+            key="group_count"
+        )
         groupings = []
         used_cats = set()
         for i in range(group_count):
